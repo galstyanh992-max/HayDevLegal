@@ -63,4 +63,4 @@ server.log
 /tool-results/
 /upload/
 /.zscripts/
-*.pid
+*.pid.env

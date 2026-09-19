@@ -302,7 +302,10 @@ async function loadFromDir(dir: string): Promise<LocalLawCorpus | null> {
     }
     for (const file of files) {
       try {
-        const raw = await readFile(join(catDir, file), "utf-8");
+        const raw = (await readFile(join(catDir, file), "utf-8")).replace(
+          /\r\n/g,
+          "\n",
+        );
         bytes += raw.length;
         const { fm } = parseFrontmatter(raw);
         const parsed = parseActMarkdown(raw);

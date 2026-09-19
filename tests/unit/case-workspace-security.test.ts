@@ -26,8 +26,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import { NextRequest } from "next/server";
+
+// Windows-first: resolve repo-root-relative paths from this test's location
+// (tests/unit/) — never a hardcoded absolute machine path.
+const REPO_ROOT = resolve(import.meta.dir, "..", "..");
+const repoPath = (...p: string[]) => join(REPO_ROOT, ...p);
 
 import {
   MAX_FILE_SIZE_BYTES,
@@ -356,9 +362,7 @@ describe("Phase 5.1 §28 — Case Workspace security regression", () => {
     // (rather than spawning `rg`) avoids interference from any sibling test
     // file that mocks `node:child_process` (codex-chatgpt-auth.test.ts does
     // this — see mock.module there).
-    const goldSetRoutePath = resolve(
-      "/home/z/my-project/src/app/api/test/gold-set/route.ts",
-    );
+    const goldSetRoutePath = repoPath("src", "app", "api", "test", "gold-set", "route.ts");
     const goldSetRouteSrc = readFileSync(goldSetRoutePath, "utf-8");
     expect(goldSetRouteSrc).toContain("rateLimit");
     expect(goldSetRouteSrc).toContain("qa");
@@ -442,10 +446,10 @@ describe("Phase 5.1 §28 #10 — Secret scan", () => {
 
   function allScanFiles(): string[] {
     const files = [
-      ...walkDir(resolve("/home/z/my-project/src")),
-      ...walkDir(resolve("/home/z/my-project/tests")),
+      ...walkDir(repoPath("src")),
+      ...walkDir(repoPath("tests")),
     ];
-    const envPath = resolve("/home/z/my-project/.env");
+    const envPath = repoPath(".env");
     if (existsSync(envPath)) files.push(envPath);
     return files;
   }
@@ -519,15 +523,16 @@ describe("Phase 5.1 §28 #11 — Codex workspace isolation", () => {
     };
   }
 
-  test("createWorkspace writes under /tmp/haydevlegal-case/<uuid>/ — NOT under project root", async () => {
+  test("createWorkspace writes under <os.tmpdir>/haydevlegal-case/<uuid>/ — NOT under project root", async () => {
     const requestId = randomUUID();
     const ws = await createWorkspace(requestId, emptyPack());
     createdRoots.push(ws.rootDir);
 
-    // The workspace MUST be under /tmp/haydevlegal-case/<id>/, never under
-    // the project repository root.
-    expect(ws.rootDir.startsWith("/tmp/haydevlegal-case/")).toBe(true);
-    expect(ws.rootDir).not.toContain("/home/");
+    // The workspace MUST be under the OS temp root (os.tmpdir()/haydevlegal-
+    // case/<id>/ — Windows-first, §19 of the provider-connection spec), never
+    // under the project repository root.
+    const expectedRoot = join(tmpdir(), "haydevlegal-case");
+    expect(ws.rootDir.startsWith(expectedRoot + sep)).toBe(true);
     expect(ws.rootDir).not.toContain(process.cwd());
     expect(ws.rootDir).not.toContain("..");
 
@@ -639,8 +644,13 @@ describe("Phase 5.1 §28 #12 — Datalex session isolation (no regression vs Pha
     // USER_SESSION scope, not GLOBAL_PUBLIC. We read the file directly
     // (rather than spawning `rg`) to avoid interference from sibling test
     // files that mock `node:child_process` (codex-chatgpt-auth.test.ts).
-    const clientPath = resolve(
-      "/home/z/my-project/src/lib/legal-search/sources/datalex/client.ts",
+    const clientPath = repoPath(
+      "src",
+      "lib",
+      "legal-search",
+      "sources",
+      "datalex",
+      "client.ts",
     );
     const src = readFileSync(clientPath, "utf-8");
 

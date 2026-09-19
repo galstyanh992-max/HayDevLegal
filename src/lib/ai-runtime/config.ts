@@ -7,7 +7,13 @@
 // the runtime injectable in tests (swap the constants) and prevents the
 // "where did this magic number come from" problem.
 
+import os from "node:os";
+import path from "node:path";
 import type { AiProviderId, AiTaskType } from "./types";
+
+// Windows-first workspace root (§19): under os.tmpdir() with a project-
+// scoped subdirectory — never a hardcoded /tmp.
+const DEFAULT_WORKSPACE_ROOT = path.join(os.tmpdir(), "haydevlegal-case");
 
 // ---------------------------------------------------------------------------
 // Env reading helpers — strict, never throws (missing env → UNCONFIGURED).
@@ -102,7 +108,7 @@ export const CODEX_SDK_CONFIG: CodexSdkConfig = {
   enabled: envBool("CODEX_SDK_ENABLED", false),
   apiKey: envStr("CODEX_API_KEY", ""),
   model: envStr("CODEX_MODEL", "gpt-5-codex"),
-  workspaceRoot: envStr("CODEX_SDK_WORKSPACE_ROOT", "/tmp/haydevlegal-case"),
+  workspaceRoot: envStr("CODEX_SDK_WORKSPACE_ROOT", DEFAULT_WORKSPACE_ROOT),
   maxTokens: envInt("CODEX_SDK_MAX_TOKENS", 16_000),
   defaultTimeoutMs: envInt("CODEX_SDK_TIMEOUT_MS", 120_000),
   // Probed at registry init; false until proven otherwise (§111).
@@ -138,7 +144,7 @@ export const CODEX_CLI_CONFIG: CodexCliConfig = {
   cliPath: envStr("CODEX_CLI_PATH", ""),
   model: envStr("CODEX_MODEL", ""),
   reasoningEffort: envStr("CODEX_REASONING_EFFORT", "medium"),
-  workspaceRoot: envStr("CODEX_CLI_WORKSPACE_ROOT", "/tmp/haydevlegal-case"),
+  workspaceRoot: envStr("CODEX_CLI_WORKSPACE_ROOT", DEFAULT_WORKSPACE_ROOT),
   maxTokens: envInt("CODEX_CLI_MAX_TOKENS", 16_000),
   defaultTimeoutMs: envInt("CODEX_CLI_TIMEOUT_MS", 180_000),
   binaryAvailable: false,
@@ -235,7 +241,7 @@ export function describeProviderConfig(): Record<
     zai: {
       enabled: ZAI_CONFIG.enabled,
       configured: true,
-      detail: "z-ai-web-dev-sdk bundled",
+      detail: "z-ai-web-dev-sdk bundled (.z-ai-config credential required)",
     },
     "ollama-cloud": {
       enabled: OLLAMA_CLOUD_CONFIG.enabled,

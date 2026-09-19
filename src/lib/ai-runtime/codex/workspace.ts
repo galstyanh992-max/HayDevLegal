@@ -35,6 +35,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -48,9 +49,10 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-// /tmp is per-process-restart on most Linux distros; subdirectory keeps our
-// workspaces isolated from other tooling that may use /tmp.
-const WORKSPACE_ROOT = "/tmp/haydevlegal-case";
+// Windows-first (§19): under os.tmpdir() — C:\Users\<u>\AppData\Local\Temp on
+// Windows, /tmp on Linux — with a project-scoped subdirectory. Request ids
+// scope individual workspaces below it.
+const WORKSPACE_ROOT = path.join(os.tmpdir(), "haydevlegal-case");
 
 // File permissions — strict by design.
 const DIR_MODE = 0o700;

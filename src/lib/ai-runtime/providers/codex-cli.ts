@@ -378,8 +378,16 @@ function probeCodexBinary(): BinaryProbe {
     candidates.push(cliPath);
   }
   // The codex binary is installed at node_modules/.bin/codex as a dep of
-  // @openai/codex-sdk (verified: codex-cli 0.155.0).
-  candidates.push(path.join(process.cwd(), "node_modules", ".bin", "codex"));
+  // @openai/codex-sdk (verified: codex-cli 0.155.0). Windows-first: bun/npm
+  // install codex.exe / codex.cmd shims there — spawnSync(shell:false) can
+  // neither execute the extensionless POSIX shim nor rely on PATH containing
+  // the project .bin dir.
+  const binDir = path.join(process.cwd(), "node_modules", ".bin");
+  candidates.push(path.join(binDir, "codex"));
+  if (process.platform === "win32") {
+    candidates.push(path.join(binDir, "codex.exe"));
+    candidates.push(path.join(binDir, "codex.cmd"));
+  }
 
   for (const candidate of candidates) {
     try {
@@ -401,6 +409,58 @@ function probeCodexBinary(): BinaryProbe {
     }
   }
   return { available: false, path: null };
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schema sanitizer for `codex exec --output-schema`.
+//
+// OpenAI structured outputs run in STRICT mode (verified against codex-cli
+// 0.155.0), which requires of every object schema node:
+//   1. `additionalProperties` MUST be present and MUST be the boolean false
+//      ("In context=(), 'additionalProperties' is required to be supplied and
+//      to be false") — zod v4's toJSONSchema() omits it for most objects;
+//   2. it must never be a schema OBJECT ("In context=('additionalProperties',),
+//      schema must have a 'type' key") — zod v4 emits that for
+//      Record<string, T>-shaped fields.
+// The sanitizer therefore forces `additionalProperties: false` on every
+// object-shaped node (boolean false is preserved as-is; object-valued is
+// replaced). Schema-file failure is non-fatal: codex then runs prompt-only
+// enforcement and the closed-evidence firewall still validates the output
+// post-hoc.
+// ---------------------------------------------------------------------------
+
+export function sanitizeJsonSchemaForCodex(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(sanitizeJsonSchemaForCodex);
+  if (!node || typeof node !== "object") return node;
+  const src = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (key === "additionalProperties") {
+      out[key] = typeof value === "boolean" ? value : false;
+      continue;
+    }
+    out[key] = sanitizeJsonSchemaForCodex(value);
+  }
+  const isObjectShape =
+    out.type === "object" ||
+    (out.type === undefined &&
+      !Array.isArray(out.properties) &&
+      out.properties !== null &&
+      out.properties !== undefined &&
+      typeof out.properties === "object");
+  if (isObjectShape) {
+    // Strict mode: EVERY object must declare additionalProperties: false AND
+    // `required` listing EVERY key in `properties` (zod's toJSONSchema omits
+    // optional keys from `required` — the strict contract forbids that; the
+    // model must emit every field, zod still validates afterwards).
+    if (out.additionalProperties === undefined) out.additionalProperties = false;
+    if (out.properties !== null && typeof out.properties === "object") {
+      out.required = Object.keys(out.properties as Record<string, unknown>);
+    } else if (out.required === undefined) {
+      out.required = []; // object without properties — strict still wants required
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -725,13 +785,14 @@ IMPORTANT: Output ONLY a single JSON object matching the CodexCaseAnalysis schem
       try {
         // zod v4 exposes toJSONSchema as both a static `z.toJSONSchema(s)`
         // and an instance method `s.toJSONSchema()`. Both produce identical
-        // draft/2020-12 JSON Schema.
+        // draft/2020-12 JSON Schema — sanitized for the codex/OpenAI
+        // structured-output contract (see sanitizeJsonSchemaForCodex).
         const jsonSchema = (z as unknown as {
           toJSONSchema: (s: unknown) => unknown;
         }).toJSONSchema(CodexCaseAnalysisSchema);
         await fs.writeFile(
           schemaPath,
-          JSON.stringify(jsonSchema, null, 2),
+          JSON.stringify(sanitizeJsonSchemaForCodex(jsonSchema), null, 2),
           "utf8",
         );
       } catch {
@@ -766,13 +827,18 @@ IMPORTANT: Output ONLY a single JSON object matching the CodexCaseAnalysis schem
         combinedPrompt,
       ];
 
-      // Controlled env (§36 — no inherited secrets). Only PATH and HOME are
-      // passed unconditionally. CODEX_API_KEY is forwarded ONLY when
-      // CODEX_SDK_ENABLED=true (§13, §41 — never silently switch to API-key
-      // billing when the CLI is configured for ChatGPT account auth). When
-      // CODEX_SDK_ENABLED=false (the default), the codex exec subprocess
-      // sees NO API key in env and MUST use the ChatGPT account credentials
-      // stored by `codex login` (verified via `codex login status` above).
+      // Controlled env (§36 — no inherited secrets). Only a minimal, safe
+      // allowlist is forwarded. HOME/USERPROFILE locate the Codex CLI's own
+      // ChatGPT credentials (~/.codex) — without them on Windows the
+      // subprocess cannot see the `codex login` state. SystemRoot/ComSpec/
+      // TEMP are required by Windows for TLS (SChannel) and process basics —
+      // an env missing SystemRoot breaks winsock inside the child.
+      // CODEX_API_KEY is forwarded ONLY when CODEX_SDK_ENABLED=true (§13,
+      // §41 — never silently switch to API-key billing when the CLI is
+      // configured for ChatGPT account auth). When CODEX_SDK_ENABLED=false
+      // (the default), the codex exec subprocess sees NO API key in env and
+      // MUST use the ChatGPT account credentials stored by `codex login`
+      // (verified via `codex login status` above).
       //
       // This gate is the §41 hard-test backstop: even if CODEX_API_KEY is
       // accidentally present in process.env, the CLI subprocess will NOT
@@ -783,8 +849,19 @@ IMPORTANT: Output ONLY a single JSON object matching the CodexCaseAnalysis schem
       // preserving the no-silent-API-billing-switch rule (§13).
       const childEnv: NodeJS.ProcessEnv = {
         PATH: process.env.PATH ?? "",
-        HOME: process.env.HOME ?? "/tmp",
+        HOME: process.env.HOME ?? process.env.USERPROFILE ?? "",
       } as unknown as NodeJS.ProcessEnv;
+      for (const key of [
+        "USERPROFILE",
+        "SystemRoot",
+        "SystemDrive",
+        "ComSpec",
+        "TEMP",
+        "TMP",
+      ] as const) {
+        const v = process.env[key];
+        if (v) childEnv[key] = v;
+      }
       if (CODEX_SDK_CONFIG.enabled) {
         const codexApiKey = process.env.CODEX_API_KEY;
         if (codexApiKey && codexApiKey.length > 0) {

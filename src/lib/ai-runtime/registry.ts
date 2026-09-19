@@ -55,8 +55,15 @@ function probeCodexCliAvailability(): boolean {
   if (CODEX_CLI_CONFIG.cliPath) candidates.push(CODEX_CLI_CONFIG.cliPath);
   // Project-local binary installed via `bun add @openai/codex-sdk`
   // (auto-installs @openai/codex which provides the `codex` bin).
+  // Windows-first: bun/npm install codex.exe / codex.cmd shims into .bin —
+  // spawnSync(shell:false) cannot execute the extensionless POSIX shim there.
   try {
-    candidates.push(pathResolve("node_modules/.bin/codex"));
+    const binDir = pathResolve("node_modules/.bin");
+    candidates.push(path.join(binDir, "codex"));
+    if (process.platform === "win32") {
+      candidates.push(path.join(binDir, "codex.exe"));
+      candidates.push(path.join(binDir, "codex.cmd"));
+    }
   } catch {
     // process.cwd() unavailable in some edge environments — skip.
   }

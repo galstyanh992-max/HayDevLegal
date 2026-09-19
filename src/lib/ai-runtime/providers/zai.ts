@@ -9,6 +9,9 @@
 // reference implementation; this is its runtime form. Task 4 will migrate
 // llm.ts onto this provider.
 
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type {
   AiProvider,
   AiProviderCapabilities,
@@ -42,6 +45,45 @@ const ZAI_CAPABILITIES: AiProviderCapabilities = {
   defaultTimeoutMs: ZAI_CONFIG.defaultTimeoutMs,
 };
 
+// ---------------------------------------------------------------------------
+// Config presence probe (Windows-first, §25/§111 — never fake a pass).
+// z-ai-web-dev-sdk reads .z-ai-config JSON ({baseUrl, apiKey}) from the
+// project dir, the user home dir, or /etc. In the original sandbox it was
+// auto-provisioned; on a self-hosted Windows machine it must be created by
+// the operator. health() reports UNCONFIGURED (not HEALTHY) when it is
+// missing so the router skips straight to the next provider and /api/health
+// tells the truth. The probe is a cheap stat check, cached briefly.
+// ---------------------------------------------------------------------------
+
+let configProbeCache: { result: boolean; expiresAt: number } | undefined;
+const CONFIG_PROBE_TTL_MS = 30_000;
+
+export async function zaiConfigPresent(): Promise<boolean> {
+  const now = Date.now();
+  if (configProbeCache && configProbeCache.expiresAt > now) {
+    return configProbeCache.result;
+  }
+  const candidates = [
+    path.join(process.cwd(), ".z-ai-config"),
+    path.join(os.homedir(), ".z-ai-config"),
+  ];
+  let present = false;
+  for (const p of candidates) {
+    try {
+      await fs.access(p);
+      present = true;
+      break;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  configProbeCache = { result: present, expiresAt: now + CONFIG_PROBE_TTL_MS };
+  return present;
+}
+
+const ZAI_CONFIG_HINT =
+  "create .z-ai-config JSON {\"baseUrl\",\"apiKey\"} in the project or home directory";
+
 /**
  * Z-AI provider. Singleton (constructed by the registry).
  *
@@ -58,6 +100,16 @@ export class ZaiProvider implements AiProvider {
       return {
         status: "RATE_LIMITED",
         detail: `cooldown ${remainingCooldownMs(this.id)}ms`,
+        lastCheckedAt: Date.now(),
+      };
+    }
+    // §25/§111 — the SDK is bundled, but it still needs its operator-provided
+    // .z-ai-config credential file. Missing config = UNCONFIGURED, not
+    // HEALTHY (this is exactly the "never fake a pass" rule).
+    if (!(await zaiConfigPresent())) {
+      return {
+        status: "UNCONFIGURED",
+        detail: `.z-ai-config missing — ${ZAI_CONFIG_HINT}`,
         lastCheckedAt: Date.now(),
       };
     }
@@ -78,6 +130,16 @@ export class ZaiProvider implements AiProvider {
         status: "RATE_LIMITED",
         provider: this.id,
         retryAfterMs: remainingCooldownMs(this.id),
+      };
+    }
+    // Missing credential file — short-circuit before importing the SDK so
+    // the failure is classified as UNCONFIGURED (routing skips it) instead
+    // of ERROR (which would trip the circuit breaker).
+    if (!(await zaiConfigPresent())) {
+      return {
+        status: "UNAVAILABLE",
+        provider: this.id,
+        detail: `.z-ai-config missing — ${ZAI_CONFIG_HINT}`,
       };
     }
 
@@ -129,6 +191,13 @@ export class ZaiProvider implements AiProvider {
         status: "RATE_LIMITED",
         provider: this.id,
         retryAfterMs: remainingCooldownMs(this.id),
+      };
+    }
+    if (!(await zaiConfigPresent())) {
+      return {
+        status: "UNAVAILABLE",
+        provider: this.id,
+        detail: `.z-ai-config missing — ${ZAI_CONFIG_HINT}`,
       };
     }
     const timeoutMs =

@@ -81,9 +81,85 @@ model CaseWorkspace {
   analysisResults CaseAnalysisResult[]
   drafts        LegalDraft[]
   actionCandidates LegalActionCandidate[]
+  tasks         Task[]
+  events        CalendarEvent[]
+  recentViews   RecentView[]
 
   @@index([status])
   @@index([caseType])
+}
+
+// ---------------------------------------------------------------------------
+// Workspace scaffolding (Galstyan redesign, additive 2026-09-20):
+// tasks, calendar events, per-case recent views, key/value user preferences.
+// Purely additive migration — see docs/galstyan-redesign/migrations/.
+// ---------------------------------------------------------------------------
+
+model Task {
+  id          String    @id @default(cuid())
+  caseId      String?
+  title       String
+  description String?
+  assignee    String?
+  // TODO | IN_PROGRESS | DONE | CANCELLED
+  status      String    @default("TODO")
+  // LOW | MEDIUM | HIGH | URGENT
+  priority    String    @default("MEDIUM")
+  dueAt       DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  case CaseWorkspace? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([status])
+  @@index([dueAt])
+}
+
+model CalendarEvent {
+  id        String    @id @default(cuid())
+  caseId    String?
+  // HEARING | MEETING | DEADLINE | REMINDER
+  type      String    @default("MEETING")
+  title     String
+  // Timed events use startsAt/endsAt (UTC instants). All-day events use
+  // dateOnly (YYYY-MM-DD calendar date WITHOUT a time) — never midnight UTC,
+  // which shifts the displayed date across timezones (spec §13).
+  startsAt  DateTime?
+  endsAt    DateTime?
+  allDay    Boolean   @default(false)
+  dateOnly  String?
+  timezone  String    @default("Asia/Yerevan")
+  location  String?
+  notes     String?
+  // SCHEDULED | COMPLETED | CANCELLED
+  status    String    @default("SCHEDULED")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  case CaseWorkspace? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([startsAt])
+  @@index([status])
+}
+
+model RecentView {
+  id       String   @id @default(cuid())
+  caseId   String
+  viewedAt DateTime @default(now())
+
+  case CaseWorkspace @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, viewedAt])
+}
+
+model UserPreference {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // §5 — CaseVolume: ordered container within a case (e.g. Volume 1: Indictment,

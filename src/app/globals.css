@@ -79,37 +79,146 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Galstyan & Partners — black marble + muted gold (spec §04) */
+  --background: #080909;
+  --foreground: #f3eee5;
+  --card: #101111;
+  --card-foreground: #f3eee5;
+  --popover: #141514;
+  --popover-foreground: #f3eee5;
+  --primary: #d4aa62;
+  --primary-foreground: #17120a;
+  --secondary: #181817;
+  --secondary-foreground: #f3eee5;
+  --muted: #1c1c1b;
+  --muted-foreground: #aaa296;
+  --accent: #262320;
+  --accent-foreground: #f0d294;
+  --destructive: #ef9a91;
+  --border: rgba(212, 170, 98, 0.24);
+  --input: rgba(212, 170, 98, 0.18);
+  --ring: #f0d294;
+  --chart-1: #d4aa62;
+  --chart-2: #9fcdaf;
+  --chart-3: #a8bfde;
+  --chart-4: #e8c47c;
+  --chart-5: #ef9a91;
+  --sidebar: #0c0d0c;
+  --sidebar-foreground: #f3eee5;
+  --sidebar-primary: #d4aa62;
+  --sidebar-primary-foreground: #17120a;
+  --sidebar-accent: #262320;
+  --sidebar-accent-foreground: #f0d294;
+  --sidebar-border: rgba(212, 170, 98, 0.24);
+  --sidebar-ring: #f0d294;
+}
+
+/* ---------------------------------------------------------------------------
+   Galstyan & Partners — semantic design tokens (master spec §04).
+   These are the project-level design vocabulary; shadcn tokens above map the
+   same palette onto the existing component library so every Radix/shadcn
+   control adopts the brand without per-component edits.
+--------------------------------------------------------------------------- */
+:root,
+.dark {
+  --app-bg: #080909;
+  --surface-base: #101111;
+  --surface-raised: #181817;
+  --surface-glass: rgba(16, 17, 17, 0.88);
+  --surface-input: rgba(24, 25, 24, 0.94);
+  --gold-primary: #d4aa62;
+  --gold-light: #f0d294;
+  --gold-deep: #926c35;
+  --border-subtle: rgba(212, 170, 98, 0.24);
+  --border-active: rgba(240, 210, 148, 0.7);
+  --text-primary: #f3eee5;
+  --text-secondary: #c4bcaf;
+  --text-muted: #aaa296;
+  --focus-ring: #f0d294;
+  --danger: #ef9a91;
+  --success: #9fcdaf;
+  --warning: #e8c47c;
+  --info: #a8bfde;
+}
+
+@theme inline {
+  --color-app-bg: var(--app-bg);
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-glass: var(--surface-glass);
+  --color-surface-input: var(--surface-input);
+  --color-gold: var(--gold-primary);
+  --color-gold-light: var(--gold-light);
+  --color-gold-deep: var(--gold-deep);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-active: var(--border-active);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-wordmark: var(--font-cormorant);
+}
+
+@layer utilities {
+  /* Dark glass card — near-opaque black glass, thin gold border, soft shadow */
+  .gp-glass {
+    background: var(--surface-glass);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .gp-glass-strong {
+    background: rgba(12, 13, 12, 0.96);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  }
+  /* Gold gradient — wordmark + one primary CTA only (spec §04) */
+  .gp-gold-text {
+    background: linear-gradient(135deg, #f0d294 0%, #d4aa62 45%, #926c35 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .gp-gold-cta {
+    background: linear-gradient(135deg, #f0d294 0%, #d4aa62 55%, #b98f4e 100%);
+    color: #17120a;
+  }
+  /* Sidebar black marble with very faint gold veining (CSS only — no raster) */
+  .gp-marble {
+    background-color: #0b0c0b;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(212, 170, 98, 0.06), transparent),
+      radial-gradient(ellipse 60% 40% at 90% 110%, rgba(212, 170, 98, 0.05), transparent),
+      linear-gradient(115deg, transparent 42%, rgba(212, 170, 98, 0.028) 46%, transparent 50%),
+      linear-gradient(65deg, transparent 60%, rgba(212, 170, 98, 0.02) 64%, transparent 68%);
+  }
+  /* Crest asset is gold-on-near-black raster: screen blend drops the black box
+     onto any dark surface without needing a transparent cutout. */
+  .gp-crest-img {
+    mix-blend-mode: screen;
+    user-select: none;
+    pointer-events: none;
+  }
+  /* Decorative hero side strips — never intercept input (spec §03/§04) */
+  .gp-decor {
+    pointer-events: none;
+    user-select: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @layer base {

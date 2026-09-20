@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Cormorant_Garamond } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "@/components/legal/ThemeProvider";
+import { LocaleProvider } from "@/lib/i18n/locale-context";
+import { AppShell } from "@/components/shell/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,55 +17,42 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
+// Wordmark serif — SIL Open Font License (Google Fonts), latin subset only:
+// the wordmark is Latin; interface text keeps the Armenian-capable stack below.
+const cormorant = Cormorant_Garamond({
+  variable: "--font-cormorant",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
-    default: "Հայկական իրավական որոնում — ARLIS",
-    template: "%s — Հայկական իրավական որոնում",
+    default: "Galstyan & Partners — Իրավական աշխատանքային համակարգ",
+    template: "%s — Galstyan & Partners",
   },
   description:
-    "Արագ որոնում Հայաստանի օրենսդրությունում ARLIS աղբյուրով։ Ստացեք ամենատեղին ունեցող իրավական ակտերը և AI վերլուծությունը՝ հղումով դեպի սկզբնաղբյուր։",
+    "Galstyan & Partners — իրավաբանական աշխատանքային համակարգ՝ գործեր, փաստաթղթեր, իրավական որոնում (ARLIS, Datalex, Սահմանադրական դատարան, ՄԻԵԴ), ԱԲ վերլուծություն և փաստաթղթերի նախագծում։",
   keywords: [
+    "Galstyan & Partners",
     "ARLIS",
     "Հայաստանի օրենսդրություն",
     "իրավական որոնում",
-    "քրեական օրենսգիրք",
-    "քաղաքացիական օրենսգիրք",
-    "Հայաստանի Հանրապետություն",
-    "իրավունք",
+    "գործերի վարում",
   ],
-  authors: [{ name: "Armenian Legal Search" }],
-  applicationName: "Armenian Legal Search",
-  robots: { index: true, follow: true },
-  alternates: {
-    canonical: "/",
-  },
-  openGraph: {
-    title: "Հայկական իրավական որոնում — ARLIS",
-    description:
-      "Արագ որոնում Հայաստանի օրենսդրությունում ARLIS աղբյուրով՝ AI վերլուծությամբ։",
-    siteName: "Armenian Legal Search",
-    locale: "hy_AM",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Հայկական իրավական որոնում — ARLIS",
-    description:
-      "Արագ որոնում Հայաստանի օրենսդրությունում ARLIS աղբյուրով։",
-  },
-  category: "legal",
+  authors: [{ name: "Galstyan & Partners" }],
+  applicationName: "Galstyan & Partners",
+  robots: { index: false, follow: false },
+  icons: { icon: "/brand/crest.png" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
-  ],
+  themeColor: "#080909",
 };
 
-// Dark mode only — no theme toggle, no light mode
+// Dark mode only — the brand is black marble (no light theme).
 const themeInitScript = `
 (function() {
   document.documentElement.classList.add('dark');
@@ -82,13 +70,15 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} ${cormorant.variable} antialiased bg-[var(--app-bg)] text-[var(--text-primary)]`}
         style={{
           fontFamily:
             "'Noto Sans Armenian','Noto Serif Armenian','DejaVu Sans',var(--font-geist-sans),system-ui,-apple-system,sans-serif",
         }}
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <LocaleProvider>
+          <AppShell>{children}</AppShell>
+        </LocaleProvider>
         <Toaster />
       </body>
     </html>

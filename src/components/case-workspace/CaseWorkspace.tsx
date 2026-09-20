@@ -5,9 +5,9 @@ import { CaseList } from "./CaseList";
 import { CaseDetail } from "./CaseDetail";
 import type { CaseWorkspace as CaseWorkspaceType } from "@/lib/case-workspace/types";
 
-export function CaseWorkspace() {
+export function CaseWorkspace({ initialCaseId }: { initialCaseId?: string } = {}) {
   const [cases, setCases] = useState<CaseWorkspaceType[]>([]);
-  const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(initialCaseId ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
 
@@ -31,6 +31,20 @@ export function CaseWorkspace() {
   }, [loadCases]);
 
   const activeCase = cases.find((c) => c.id === activeCaseId) ?? null;
+
+  // URL sync (Galstyan redesign): opening/closing a case keeps /cases[/id]
+  // shareable via replaceState; /cases/[id] deep links land here too.
+  useEffect(() => {
+    try {
+      const target = activeCaseId ? `/cases/${activeCaseId}` : "/cases";
+      if (window.location.pathname !== target) {
+        window.history.replaceState({}, "", target);
+      }
+      window.dispatchEvent(new CustomEvent("gp:case-opened", { detail: { caseId: activeCaseId } }));
+    } catch {
+      /* ignore */
+    }
+  }, [activeCaseId]);
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-4 sm:px-6">

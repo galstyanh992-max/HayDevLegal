@@ -84,6 +84,8 @@ import type {
 } from "../types";
 import { CODEX_CLI_CONFIG, CODEX_SDK_CONFIG } from "../config";
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
@@ -115,6 +117,21 @@ const CAPABILITIES: AiProviderCapabilities = {
   maxTokens: CODEX_CLI_CONFIG.maxTokens,
   defaultTimeoutMs: CODEX_CLI_CONFIG.defaultTimeoutMs,
 };
+
+/**
+ * Operator-configured model + reasoning effort (e.g. gpt-5.6-luna / high).
+ * Both come from env (CODEX_MODEL / CODEX_REASONING_EFFORT); when unset the
+ * CLI uses its account default. The effort value is passed as a quoted TOML
+ * string so `-c model_reasoning_effort="high"` is accepted verbatim.
+ */
+function modelEffortArgs(): string[] {
+  const args: string[] = [];
+  if (CODEX_CLI_CONFIG.model) args.push("-m", CODEX_CLI_CONFIG.model);
+  if (CODEX_CLI_CONFIG.reasoningEffort) {
+    args.push("-c", `model_reasoning_effort="${CODEX_CLI_CONFIG.reasoningEffort}"`);
+  }
+  return args;
+}
 
 // ---------------------------------------------------------------------------
 // Spawn helper — §35 NO shell interpolation, §36 caps + timeout + signal kill,
@@ -681,15 +698,122 @@ export class CodexCliProvider implements AiProvider {
   }
 
   async generateText(
-    _req: AiTextRequest,
-    _ctx: AiRuntimeContext,
+    req: AiTextRequest,
+    ctx: AiRuntimeContext,
   ): Promise<AiResult<string>> {
-    // Codex is a closed-evidence case analyzer, not a free-form text model.
-    return {
-      status: "UNAVAILABLE",
-      provider: this.id,
-      detail: "codex-cli generateText not implemented (§35 — codex is closed-evidence-only)",
-    };
+    // Free-form text generation (search final-answer / synthesis fallback).
+    // Same security envelope as case analysis: no shell, read-only sandbox,
+    // request-scoped temp dir, controlled env, bounded output, abort/timeout.
+    if (!CODEX_CLI_CONFIG.enabled) {
+      return { status: "UNAVAILABLE", provider: this.id, detail: "codex-cli not enabled" };
+    }
+    const probe = this.resolveBinary();
+    if (!probe.available || !probe.path) {
+      return { status: "UNAVAILABLE", provider: this.id, detail: "`codex` binary not on PATH (§111)" };
+    }
+    if (isInCooldown(this.id)) {
+      return { status: "RATE_LIMITED", provider: this.id, retryAfterMs: remainingCooldownMs(this.id) };
+    }
+    const auth = this.probeChatGptAuthCached();
+    if (!auth.authenticated) {
+      return { status: "AUTH_REQUIRED", provider: this.id, detail: "Codex CLI installed; ChatGPT sign-in required. Run: codex login" };
+    }
+    incActive(this.id);
+    return this.runFreeForm(req, ctx, probe.path, Date.now()).finally(() => decActive(this.id));
+  }
+
+  private async runFreeForm(
+    req: AiTextRequest,
+    ctx: AiRuntimeContext,
+    binaryPath: string,
+    startedAt: number,
+  ): Promise<AiResult<string>> {
+    const genDir = path.join(os.tmpdir(), "haydevlegal-case", `gen-${randomUUID()}`);
+    const lastMessagePath = path.join(genDir, "last-message.txt");
+    try {
+      await fs.mkdir(genDir, { recursive: true });
+
+      const prompt = req.messages
+        .map((m) => (m.role === "system" ? m.content : m.content))
+        .join("\n\n");
+      const args: string[] = [
+        "exec",
+        "--json",
+        "--sandbox", "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
+        ...modelEffortArgs(),
+        "-o", lastMessagePath,
+        "-C", genDir,
+        prompt,
+      ];
+
+      const childEnv: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? process.env.USERPROFILE ?? "",
+      } as unknown as NodeJS.ProcessEnv;
+      for (const key of ["USERPROFILE", "SystemRoot", "SystemDrive", "ComSpec", "TEMP", "TMP"] as const) {
+        const v = process.env[key];
+        if (v) childEnv[key] = v;
+      }
+
+      const timeoutMs = req.timeoutMs ?? CODEX_CLI_CONFIG.defaultTimeoutMs;
+      const subprocess = spawnNoShell(binaryPath, args, {
+        cwd: genDir,
+        env: childEnv,
+        timeoutMs,
+        stdoutCapBytes: 2 * 1024 * 1024,
+        stderrCapBytes: 64 * 1024,
+        signal: ctx.signal,
+      });
+      const { promise, cancel } = withTimeout(subprocess, timeoutMs, ctx);
+      let result: SpawnResult;
+      try {
+        result = await promise;
+      } finally {
+        cancel();
+      }
+
+      if (result.aborted || (result.killed && result.exitCode !== 0)) {
+        return { status: "TIMEOUT", provider: this.id };
+      }
+      if (result.exitCode !== 0) {
+        const rl = isRateLimitError(result.stderr);
+        if (rl.rateLimited) {
+          triggerCooldown(this.id, undefined, rl.retryAfterMs);
+          return { status: "RATE_LIMITED", provider: this.id, retryAfterMs: remainingCooldownMs(this.id) };
+        }
+        if (isChatGptQuotaExhausted(result.stdout, result.stderr)) {
+          triggerCooldown(this.id, CHATGPT_QUOTA_COOLDOWN_MS, CHATGPT_QUOTA_COOLDOWN_MS);
+          return { status: "RATE_LIMITED", provider: this.id, retryAfterMs: CHATGPT_QUOTA_COOLDOWN_MS };
+        }
+        return {
+          status: "ERROR",
+          provider: this.id,
+          detail: `codex exec exit=${result.exitCode} stderr=${result.stderr.slice(0, 256)}`,
+        };
+      }
+
+      let text: string | null = null;
+      try {
+        text = (await fs.readFile(lastMessagePath, "utf8")).trim() || null;
+      } catch {
+        text = null;
+      }
+      if (text === null) text = extractLastAgentMessage(result.stdout);
+      if (!text) return { status: "SUCCESS_EMPTY", provider: this.id, latencyMs: Date.now() - startedAt };
+
+      clearCooldown(this.id);
+      return { status: "SUCCESS", value: text, provider: this.id, latencyMs: Date.now() - startedAt };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/timeout|aborted/i.test(msg)) return { status: "TIMEOUT", provider: this.id };
+      return { status: "ERROR", provider: this.id, detail: msg.slice(0, 512) };
+    } finally {
+      await fs.rm(genDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   async generateStructured<T>(
@@ -817,6 +941,9 @@ IMPORTANT: Output ONLY a single JSON object matching the CodexCaseAnalysis schem
         "--ephemeral", // §44 — no persisted session files
         "--ignore-user-config", // §36 — do not load ~/.codex/config.toml
         "--ignore-rules", // §36 — do not load execpolicy .rules
+        // Model + reasoning effort (operator-configured, e.g.
+        // CODEX_MODEL=gpt-5.6-luna + CODEX_REASONING_EFFORT=high).
+        ...modelEffortArgs(),
         "--output-schema",
         schemaPath, // forces final response to conform to JSON schema
         "-o",

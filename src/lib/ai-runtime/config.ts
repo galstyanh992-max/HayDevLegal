@@ -178,8 +178,10 @@ export const ROUTING_POLICY: Record<AiTaskType, AiProviderId[]> = {
   ARGUMENT_MAP: ["codex-cli", "codex-sdk", "ollama-cloud"],
   // §7 — DEEP_CASE_SYNTHESIS: codex-cli → codex-sdk → ollama-cloud → zai (4th fallback)
   DEEP_CASE_SYNTHESIS: ["codex-cli", "codex-sdk", "ollama-cloud", "zai"],
-  // §8 — FINAL_ANSWER: configured healthy fast cloud provider
-  FINAL_ANSWER: ["zai", "ollama-cloud"],
+  // §8 — FINAL_ANSWER. Galstyan task: when both fast providers are
+  // unconfigured, the Codex ChatGPT transport answers as the LAST fallback
+  // (user-requested "GPT 5.6 Luna, high reasoning" search answers).
+  FINAL_ANSWER: ["zai", "ollama-cloud", "codex-cli"],
 };
 
 // ---------------------------------------------------------------------------

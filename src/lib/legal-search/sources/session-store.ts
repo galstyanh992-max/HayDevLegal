@@ -160,6 +160,11 @@ export function updateSession(
         ...(scope ? { scope, key } : {}),
         createdAt: Date.now(),
         ...patch,
+        // Finding C fix (Galstyan Stage F): a session CREATED with an
+        // accepted captchaKey must carry its acceptance timestamp — without
+        // it the next getSession/refreshCaptchaKey sees a timestampless key
+        // and drops the freshly accepted answer.
+        ...(patch.captchaKey ? { captchaKeyAt: Date.now() } : {}),
       };
       setSession(created);
       return getSession(source, scope, key);

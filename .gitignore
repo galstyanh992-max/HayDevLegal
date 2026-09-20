@@ -64,3 +64,6 @@ server.log
 /upload/
 /.zscripts/
 *.pid.env
+
+# OCR worker venv (Stage G) — local environment, not shipped
+captcha-recognizer/venv/

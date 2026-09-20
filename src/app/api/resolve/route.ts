@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 import { TIMEOUTS, POLICY } from "@/lib/legal-search/config";
 import { bootstrapDatalexSession, datalexShowCase, datalexCaseUrl } from "@/lib/legal-search/sources/datalex/client";
 import { getSession } from "@/lib/legal-search/sources/session-store";
+import { resolveSubmitCaptcha, clearStoredCaptchaKey } from "@/lib/legal-search/sources/datalex/captcha-replay";
 import { extractMainText } from "@/lib/legal-search/security/content-sanitizer";
 import { understandQuery } from "@/lib/legal-search/engine/query-understanding";
 import { extractPassages } from "@/lib/legal-search/engine/passage-extractor";
@@ -129,8 +130,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "error", error: "Չափազանց շատ փորձ։ Կրկին բացեք պատուհանը։" }, { status: 429 });
   }
 
-  // Prefer the stored captchaKey (replay) over the freshly submitted one.
-  const submitCaptcha = replayKey || captchaText;
+  // Finding D fix (Galstyan Stage F): a FRESH user-submitted answer wins over
+  // the stored replay key; the stored key is only used when the user typed
+  // nothing ("solve once, view many" replay path).
+  const submitCaptcha = resolveSubmitCaptcha(replayKey, captchaText);
 
   try {
     const res = await datalexShowCase({
@@ -146,7 +149,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (res.kind === "captcha_required") {
-      // Stored key went stale — the source wants a fresh challenge.
+      // Stored key went stale — the source wants a fresh challenge. Finding D
+      // fix: invalidate the rejected stored key (cookies may still be valid)
+      // so it can never again override the user's fresh input on a retry.
+      if (sessionIdRaw) clearStoredCaptchaKey(sessionIdRaw);
       return NextResponse.json({ status: "captcha_required", error: "Տեքստը սխալ է։ Փորձեք կրկին։" });
     }
     if (res.kind !== "full_text") {
